@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume Analyser - Results</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <main class="container">
+        <header class="page-heading">
+            <div>
+                <p class="eyebrow">Resume Analyser</p>
+                <h1>Candidate results</h1>
+            </div>
+            <a class="button secondary" href="{{ url_for('home') }}">Process more resumes</a>
+        </header>
+
+        {% if filtered_count %}
+        <p class="muted">{{ filtered_count }} resume{{ " was" if filtered_count == 1 else "s were" }} excluded because no required {{ role }} skills were found.</p>
+        {% endif %}
+        {% if not results %}
+        <section class="card"><p class="muted">No candidates matched the selected {{ role }} role. Try another role or upload additional resumes.</p></section>
+        {% endif %}
+
+        {% for result in results %}
+        <section class="card result-card">
+            <div class="section-heading">
+                <h2>{{ result.filename }}</h2>
+                <span class="badge {{ result.status }}">{{ result.status }}</span>
+            </div>
+            {% if result.status == "error" %}
+                <p class="alert error">{{ result.error }}</p>
+            {% else %}
+                {% set candidate = result.candidate %}
+                {% set analysis = result.analysis %}
+                {% if result.status == "duplicate" %}
+                    <p class="alert warning">This exact resume was already stored. Showing the existing candidate record.</p>
+                {% endif %}
+                <div class="grid">
+                    <div><h3>{{ role }} match</h3><p><strong>{{ analysis.score }}%</strong></p></div>
+                    <div><h3>Candidate role</h3><p>{{ analysis.candidate_role }}</p></div>
+                    <div><h3>Candidate</h3><p>{{ candidate.full_name or "Not found" }}</p></div>
+                    <div><h3>Email</h3><p>{{ candidate.email or "Not found" }}</p></div>
+                    <div><h3>Phone</h3><p>{{ candidate.phone or "Not found" }}</p></div>
+                    <div><h3>Experience</h3><p>{{ candidate.total_years_experience }} years</p></div>
+                </div>
+
+                <div class="two-columns">
+                    <div>
+                        <h3>Matching skills</h3>
+                        <div class="tags">{% for skill in analysis.matched_skills %}<span>{{ skill }}</span>{% else %}<em>None found</em>{% endfor %}</div>
+                    </div>
+                    <div>
+                        <h3>Role skills to develop</h3>
+                        <div class="tags">{% for skill in analysis.missing_skills %}<span class="missing">{{ skill }}</span>{% else %}<em>None</em>{% endfor %}</div>
+                    </div>
+                </div>
+                <p class="muted">Experience: {{ analysis.experience_years }} years (role target: {{ analysis.experience_target_years }} years). Match score weighs skill coverage at 80% and experience at 20%.</p>
+            {% endif %}
+        </section>
+        {% endfor %}
+    </main>
+</body>
+</html>

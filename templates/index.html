@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resume Analyser</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <main class="container">
+        <header class="hero">
+            <p class="eyebrow">RecruitFlow Resume Processing</p>
+            <h1>Resume Analyser</h1>
+            <p>Upload candidate resumes in bulk and store their structured details.</p>
+        </header>
+
+        <div class="app-layout">
+            <aside class="app-sidebar">
+                <p class="eyebrow">Workspace</p>
+                <nav class="section-nav" aria-label="Resume analyzer sections">
+                    <button class="nav-item active" type="button" data-section="sorting-section">Sorting</button>
+                    <button class="nav-item" type="button" data-section="upload-section">Upload</button>
+                    <button class="nav-item" type="button" data-section="analysis-section">Analysis</button>
+                    <button class="nav-item" type="button" data-section="candidate-section">Candidate records</button>
+                </nav>
+            </aside>
+            <div class="section-content">
+        <section class="card sorting-card section-panel active" id="sorting-section">
+            <div class="section-heading">
+                <div><p class="eyebrow">Sorting</p><h2>Choose a role to match</h2></div>
+                {% if candidates %}<button class="secondary small-button" id="analyze-stored" type="button">Analyze stored candidates</button>{% endif %}
+            </div>
+            <p class="muted">Use this role to rank uploaded resumes or analyze candidates already in your records.</p>
+            <div class="role-picker">
+                <label for="role">Role to match</label>
+                <span class="role-hint">Choose the position you are hiring for</span>
+                <div class="select-wrap">
+                    <select id="role" name="role" form="upload-form" required>
+                        <option value="" disabled selected>Select a role</option>
+                        {% for role, requirements in roles.items() %}
+                        <option value="{{ role }}" data-skills="{{ requirements.skills|sort|join(', ') }}" data-experience="{{ requirements.experience }}">{{ role }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <p class="role-preview" id="role-preview" aria-live="polite">Select a role to preview the skills and experience used for matching.</p>
+            </div>
+        </section>
+
+        <section class="card upload-card section-panel" id="upload-section" hidden>
+            <p class="eyebrow">Upload</p>
+            <h2>Upload resumes</h2>
+            <p>Choose one or more PDF or DOCX files. Each resume is parsed and stored as a candidate record.</p>
+            {% if error %}<p class="alert error">{{ error }}</p>{% endif %}
+            <form id="upload-form" action="{{ url_for('analyze') }}" method="post" enctype="multipart/form-data">
+                <label class="file-picker">
+                    <span>Select resumes</span>
+                    <input type="file" name="resumes" accept=".pdf,.docx" multiple required>
+                </label>
+                <button type="submit">Process candidates</button>
+            </form>
+        </section>
+
+        <script>
+            const roleSelect = document.querySelector("#role");
+            const rolePreview = document.querySelector("#role-preview");
+            roleSelect.addEventListener("change", () => {
+                const option = roleSelect.selectedOptions[0];
+                rolePreview.textContent = `${option.dataset.experience} years target - Matching skills: ${option.dataset.skills}`;
+                rolePreview.classList.add("has-selection");
+            });
+        </script>
+
+        <section class="card analysis-section section-panel" id="analysis-section" hidden aria-live="polite">
+            <p class="eyebrow">Analysis</p>
+            <h2>Analysis results</h2>
+            <p class="muted" id="analysis-empty">Upload resumes or analyze stored candidates to see results here.</p>
+            <div class="live-results" id="live-results" hidden>
+                <div class="section-heading"><h3>Upload results</h3><span id="upload-status"></span></div>
+                <div id="live-candidate-list"></div>
+            </div>
+            <div class="stored-analysis" id="stored-analysis" hidden>
+                <div class="section-heading"><h3>Stored candidate matches</h3><span id="stored-analysis-status"></span></div>
+                <div id="stored-analysis-results"></div>
+            </div>
+        </section>
+
+        <script>
+            const uploadForm = document.querySelector(".upload-card form");
+            const liveResults = document.querySelector("#live-results");
+            const liveList = document.querySelector("#live-candidate-list");
+            const uploadStatus = document.querySelector("#upload-status");
+            const addLiveCard = (result) => {
+                const card = document.createElement("article");
+                card.className = "live-candidate";
+                if (result.candidate) {
+                    const candidate = result.candidate;
+                    const analysis = result.analysis;
+                    const title = document.createElement("h3");
+                    title.textContent = candidate.full_name || result.filename;
+                    const detail = document.createElement("p");
+                    detail.textContent = `Candidate role: ${analysis.candidate_role} | ${analysis.role} match: ${analysis.score}%`;
+                    const skills = document.createElement("p");
+                    skills.textContent = `Matching skills: ${analysis.matched_skills.join(", ")}`;
+                    card.append(title, detail, skills);
+                } else {
+                    const message = document.createElement("p");
+                    message.textContent = `${result.filename}: ${result.error || "No role skills matched; candidate excluded."}`;
+                    card.append(message);
+                }
+                liveList.prepend(card);
+            };
+            uploadForm.addEventListener("submit", async (event) => {
+                event.preventDefault();
+                const selectedFiles = Array.from(uploadForm.querySelector('input[type="file"]').files);
+                const selectedRole = roleSelect.value;
+                if (!selectedRole || selectedFiles.length === 0) return;
+                showSection("analysis-section");
+                document.querySelector("#analysis-empty").hidden = true;
+                liveResults.hidden = false;
+                liveList.replaceChildren();
+                uploadForm.querySelector("button[type='submit']").disabled = true;
+                for (let index = 0; index < selectedFiles.length; index += 1) {
+                    const file = selectedFiles[index];
+                    uploadStatus.textContent = `Processing ${index + 1} of ${selectedFiles.length}: ${file.name}`;
+                    const data = new FormData();
+                    data.append("role", selectedRole);
+                    data.append("resumes", file);
+                    try {
+                        const response = await fetch("{{ url_for('analyze_api') }}", { method: "POST", body: data });
+                        const payload = await response.json();
+                        if (!response.ok) throw new Error(payload.error || "Upload failed.");
+                        payload.results.forEach(addLiveCard);
+                        if (payload.filtered_count) addLiveCard({ filename: file.name, error: "No required skills matched the selected role." });
+                    } catch (error) {
+                        addLiveCard({ filename: file.name, error: error.message });
+                    }
+                }
+                uploadStatus.textContent = `Finished processing ${selectedFiles.length} resume${selectedFiles.length === 1 ? "" : "s"}.`;
+                uploadForm.querySelector("button[type='submit']").disabled = false;
+            });
+        </script>
+
+        <section class="card section-panel" id="candidate-section" hidden>
+            <div class="section-heading">
+                <h2>Candidate records</h2>
+                <span id="candidate-count">{{ candidates|length }} stored</span>
+            </div>
+            {% if candidates %}
+            <div class="candidate-workspace">
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Source file</th></tr></thead>
+                        <tbody>
+                        {% for candidate in candidates %}
+                            <tr class="candidate-row{% if loop.first %} active{% endif %}" data-candidate-id="{{ candidate.candidate_id }}" tabindex="0">
+                                <td>{{ candidate.full_name or "Not found" }}</td>
+                                <td>{{ candidate.email or "Not found" }}</td>
+                                <td>{{ candidate.phone or "Not found" }}</td>
+                                <td>{{ candidate.source_filename }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <section class="candidate-sidebar" aria-live="polite">
+                    <div class="sidebar-empty">Select a candidate to view details.</div>
+                </section>
+            </div>
+            {% else %}
+            <p class="muted">No candidates have been processed yet.</p>
+            {% endif %}
+        </section>
+            </div>
+        </div>
+        <script>
+            const sectionPanels = Array.from(document.querySelectorAll(".section-panel"));
+            const sectionNavItems = Array.from(document.querySelectorAll(".nav-item"));
+            const showSection = (sectionId) => {
+                sectionPanels.forEach((panel) => {
+                    panel.hidden = panel.id !== sectionId;
+                    panel.classList.toggle("active", panel.id === sectionId);
+                });
+                sectionNavItems.forEach((item) => item.classList.toggle("active", item.dataset.section === sectionId));
+            };
+            sectionNavItems.forEach((item) => item.addEventListener("click", () => showSection(item.dataset.section)));
+        </script>
+    </main>
+    {% if candidates %}
+    <script>
+        const rows = Array.from(document.querySelectorAll(".candidate-row"));
+        const sidebar = document.querySelector(".candidate-sidebar");
+
+        const valueOrMissing = (value) => value || "Not found";
+        const listItems = (items, emptyText = "None found") => {
+            if (!items || !items.length) {
+                return `<p class="muted">${emptyText}</p>`;
+            }
+            return `<div class="tags">${items.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>`;
+        };
+        const escapeHtml = (value) => String(value ?? "").replace(/[&<>"']/g, (char) => ({
+            "&": "&amp;",
+            "<": "&lt;",
+            ">": "&gt;",
+            '"': "&quot;",
+            "'": "&#39;"
+        }[char]));
+
+        const setActiveRow = (selectedRow) => {
+            rows.forEach((row) => row.classList.toggle("active", row === selectedRow));
+        };
+
+        const renderCandidate = (candidate) => {
+            sidebar.innerHTML = `
+                <div class="sidebar-header">
+                    <div>
+                        <p class="eyebrow">Candidate details</p>
+                        <h2>${escapeHtml(valueOrMissing(candidate.full_name))}</h2>
+                    </div>
+                    <div class="detail-actions">
+                        <span class="badge processed">Profile</span>
+                        <button class="secondary small-button" type="button" data-edit-candidate="${candidate.candidate_id}">Edit</button>
+                        <button class="danger-button" type="button" data-delete-candidate="${candidate.candidate_id}">Delete user</button>
+                    </div>
+                </div>
+                <div class="detail-grid">
+                    <div><h3>Email</h3><p>${escapeHtml(valueOrMissing(candidate.email))}</p></div>
+                    <div><h3>Phone</h3><p>${escapeHtml(valueOrMissing(candidate.phone))}</p></div>
+                    <div><h3>LinkedIn</h3><p>${escapeHtml(valueOrMissing(candidate.linkedin))}</p></div>
+                    <div><h3>GitHub</h3><p>${escapeHtml(valueOrMissing(candidate.github))}</p></div>
+                    <div><h3>Portfolio</h3><p>${escapeHtml(valueOrMissing(candidate.portfolio))}</p></div>
+                    <div><h3>Source file</h3><p>${escapeHtml(candidate.source_filename)}</p></div>
+                </div>
+                <div class="sidebar-section">
+                    <h3>Skills</h3>
+                    ${listItems(candidate.skills)}
+                </div>
+                <div class="sidebar-section">
+                    <h3>Education</h3>
+                    ${listItems(candidate.education, "No education found")}
+                </div>
+                <div class="sidebar-section">
+                    <h3>Certifications</h3>
+                    ${listItems(candidate.certifications, "No certifications found")}
+                </div>
+                <div class="sidebar-section">
+                    <h3>Work experience</h3>
+                    ${listItems(candidate.work_experience, "No work experience found")}
+                </div>
+                <div class="sidebar-section">
+                    <h3>Internships</h3>
+                    ${listItems(candidate.internship_experience, "No internships found")}
+                </div>
+                <div class="sidebar-section">
+                    <h3>Missing fields</h3>
+                    ${listItems(candidate.missing_fields, "None")}
+                </div>
+            `;
+        };
+
+        const editCandidate = (candidate) => {
+            const lines = (items) => (items || []).join("\n");
+            sidebar.innerHTML = `
+                <div class="sidebar-header">
+                    <div><p class="eyebrow">Edit candidate</p><h2>${escapeHtml(valueOrMissing(candidate.full_name))}</h2></div>
+                    <button class="secondary small-button" type="button" data-cancel-edit>Cancel</button>
+                </div>
+                <form class="edit-form" data-edit-form="${candidate.candidate_id}">
+                    <label>Full name<input name="full_name" value="${escapeHtml(candidate.full_name)}"></label>
+                    <label>Email<input name="email" type="email" value="${escapeHtml(candidate.email)}"></label>
+                    <label>Phone<input name="phone" value="${escapeHtml(candidate.phone)}"></label>
+                    <label>LinkedIn<input name="linkedin" value="${escapeHtml(candidate.linkedin)}"></label>
+                    <label>GitHub<input name="github" value="${escapeHtml(candidate.github)}"></label>
+                    <label>Portfolio<input name="portfolio" value="${escapeHtml(candidate.portfolio)}"></label>
+                    <label>Address<input name="address" value="${escapeHtml(candidate.address)}"></label>
+                    <label>Skills <span>(one per line or comma-separated)</span><textarea name="skills">${escapeHtml((candidate.skills || []).join(", "))}</textarea></label>
+                    <label>Education <span>(one per line)</span><textarea name="education">${escapeHtml(lines(candidate.education))}</textarea></label>
+                    <label>Certifications <span>(one per line)</span><textarea name="certifications">${escapeHtml(lines(candidate.certifications))}</textarea></label>
+                    <label>Work experience <span>(one per line)</span><textarea name="work_experience">${escapeHtml(lines(candidate.work_experience))}</textarea></label>
+                    <label>Internships <span>(one per line)</span><textarea name="internship_experience">${escapeHtml(lines(candidate.internship_experience))}</textarea></label>
+                    <button type="submit">Save changes</button>
+                </form>
+            `;
+        };
+
+        const loadCandidate = async (row) => {
+            setActiveRow(row);
+            sidebar.innerHTML = `<div class="sidebar-empty">Loading candidate details...</div>`;
+            try {
+                const response = await fetch(`/api/candidates/${row.dataset.candidateId}`);
+                if (!response.ok) {
+                    throw new Error("Candidate not found.");
+                }
+                renderCandidate(await response.json());
+            } catch (error) {
+                sidebar.innerHTML = `<p class="alert error">${escapeHtml(error.message)}</p>`;
+            }
+        };
+
+        const deleteCandidate = async (candidateId) => {
+            const activeRow = document.querySelector(`.candidate-row[data-candidate-id="${candidateId}"]`);
+            const candidateName = activeRow?.cells[0]?.textContent?.trim() || "this candidate";
+            if (!confirm(`Delete all stored details for ${candidateName}?`)) {
+                return;
+            }
+            sidebar.innerHTML = `<div class="sidebar-empty">Deleting candidate details...</div>`;
+            try {
+                const response = await fetch(`/api/candidates/${candidateId}`, { method: "DELETE" });
+                if (!response.ok) {
+                    const payload = await response.json().catch(() => ({}));
+                    throw new Error(payload.error || "Unable to delete candidate.");
+                }
+                window.location.reload();
+            } catch (error) {
+                sidebar.innerHTML = `<p class="alert error">${escapeHtml(error.message)}</p>`;
+            }
+        };
+
+        const saveCandidate = async (form) => {
+            const formData = new FormData(form);
+            const listValue = (name, separator) => String(formData.get(name) || "").split(separator).map((item) => item.trim()).filter(Boolean);
+            const payload = Object.fromEntries(["full_name", "email", "phone", "linkedin", "github", "portfolio", "address"].map((name) => [name, formData.get(name)]));
+            payload.skills = listValue("skills", /[\n,]/);
+            payload.education = listValue("education", "\n");
+            payload.certifications = listValue("certifications", "\n");
+            payload.work_experience = listValue("work_experience", "\n");
+            payload.internship_experience = listValue("internship_experience", "\n");
+            try {
+                const response = await fetch(`/api/candidates/${form.dataset.editForm}`, {
+                    method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    const result = await response.json().catch(() => ({}));
+                    throw new Error(result.error || "Unable to save changes.");
+                }
+                window.location.reload();
+            } catch (error) {
+                form.insertAdjacentHTML("afterbegin", `<p class="alert error">${escapeHtml(error.message)}</p>`);
+            }
+        };
+
+        rows.forEach((row) => {
+            row.addEventListener("click", () => loadCandidate(row));
+            row.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    loadCandidate(row);
+                }
+            });
+        });
+        sidebar.addEventListener("click", (event) => {
+            const editButton = event.target.closest("[data-edit-candidate]");
+            const deleteButton = event.target.closest("[data-delete-candidate]");
+            if (editButton) {
+                const row = document.querySelector(`.candidate-row[data-candidate-id="${editButton.dataset.editCandidate}"]`);
+                loadCandidate(row).then(() => {
+                    fetch(`/api/candidates/${editButton.dataset.editCandidate}`).then((response) => response.json()).then(editCandidate);
+                });
+            } else if (event.target.closest("[data-cancel-edit]")) {
+                const row = document.querySelector(".candidate-row.active");
+                loadCandidate(row);
+            } else if (deleteButton) {
+                deleteCandidate(deleteButton.dataset.deleteCandidate);
+            }
+        });
+        sidebar.addEventListener("submit", (event) => {
+            const form = event.target.closest("[data-edit-form]");
+            if (form) {
+                event.preventDefault();
+                saveCandidate(form);
+            }
+        });
+        const analyzeStoredButton = document.querySelector("#analyze-stored");
+        const storedAnalysis = document.querySelector("#stored-analysis");
+        const storedAnalysisStatus = document.querySelector("#stored-analysis-status");
+        const storedAnalysisResults = document.querySelector("#stored-analysis-results");
+        analyzeStoredButton.addEventListener("click", async () => {
+            if (!roleSelect.value) {
+                showSection("analysis-section");
+                document.querySelector("#analysis-empty").hidden = true;
+                storedAnalysis.hidden = false;
+                storedAnalysisStatus.textContent = "";
+                storedAnalysisResults.textContent = "Choose a role in the upload section first.";
+                return;
+            }
+            showSection("analysis-section");
+            document.querySelector("#analysis-empty").hidden = true;
+            storedAnalysis.hidden = false;
+            storedAnalysisStatus.textContent = "Analyzing stored profiles...";
+            storedAnalysisResults.replaceChildren();
+            analyzeStoredButton.disabled = true;
+            try {
+                const response = await fetch(`/api/candidates/analyze?role=${encodeURIComponent(roleSelect.value)}`);
+                const payload = await response.json();
+                if (!response.ok) throw new Error(payload.error || "Unable to analyze stored candidates.");
+                payload.results.forEach(({ candidate, analysis }) => {
+                    const card = document.createElement("article");
+                    card.className = "live-candidate";
+                    const name = document.createElement("h3");
+                    name.textContent = candidate.full_name || candidate.source_filename;
+                    const role = document.createElement("p");
+                    role.textContent = `Candidate role: ${analysis.candidate_role} | ${analysis.role} match: ${analysis.score}%`;
+                    const skills = document.createElement("p");
+                    skills.textContent = `Matching skills: ${analysis.matched_skills.join(", ")}`;
+                    card.append(name, role, skills);
+                    storedAnalysisResults.append(card);
+                });
+                if (!payload.results.length) {
+                    storedAnalysisResults.textContent = `No stored candidates matched ${payload.role}.`;
+                }
+                storedAnalysisStatus.textContent = `${payload.results.length} matched, ${payload.filtered_count} excluded`;
+            } catch (error) {
+                storedAnalysisResults.textContent = error.message;
+                storedAnalysisStatus.textContent = "Analysis failed";
+            } finally {
+                analyzeStoredButton.disabled = false;
+            }
+        });
+        loadCandidate(rows[0]);
+    </script>
+    {% endif %}
+</body>
+</html>
