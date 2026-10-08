@@ -7,6 +7,20 @@ from parser import parse_resume
 
 
 class ParserTest(unittest.TestCase):
+    def test_collects_a_single_word_name_from_the_first_line(self):
+        stream = io.BytesIO()
+        document = Document()
+        document.add_paragraph("HITHESH")
+        document.add_paragraph("Data Analyst")
+        document.add_paragraph("hithesh@example.com")
+        document.add_paragraph("PROFESSIONAL SUMMARY")
+        document.add_paragraph("Analyzes business data.")
+        document.save(stream)
+
+        parsed = parse_resume(stream.getvalue(), "hithesh.docx")
+
+        self.assertEqual(parsed["full_name"], "Hithesh")
+
     def test_collects_linkedin_without_protocol(self):
         stream = io.BytesIO()
         document = Document()

@@ -140,11 +140,22 @@ def _contains_skill(text: str, skill: str) -> bool:
 
 
 def _candidate_name(lines: list[str]) -> str:
-    for line in lines[:6]:
+    for index, line in enumerate(lines[:6]):
+        word_count = len(line.split())
         if (
-            len(line.split()) in range(2, 5)
+            word_count in range(2, 5)
             and len(line) < 60
             and not re.search(r"@|https?://|\d|resume|curriculum|linkedin|github", line, re.I)
+        ):
+            return line.title() if line.isupper() else line
+        # Some resumes put a single given name on the first line. Restrict this
+        # case to the first line so later headings cannot become the candidate name.
+        if (
+            index == 0
+            and word_count == 1
+            and len(line) < 60
+            and re.fullmatch(r"[A-Za-z][A-Za-z.'-]*", line)
+            and not re.search(r"resume|curriculum", line, re.I)
         ):
             return line.title() if line.isupper() else line
     return ""

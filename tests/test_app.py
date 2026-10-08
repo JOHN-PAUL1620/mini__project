@@ -111,12 +111,13 @@ class ResumeAnalyzerTest(unittest.TestCase):
 
     def test_browser_flow_renders_processing_results(self):
         response = self.client.post("/analyze", data={
+            "role": "Backend Developer",
             "resumes": (io.BytesIO(_resume_bytes("Browser Candidate", "browser@example.com")), "browser.docx")
         }, content_type="multipart/form-data")
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Candidate results", response.data)
-        self.assertIn(b"Skills", response.data)
+        self.assertIn(b"Matching skills", response.data)
 
 
 def _resume_bytes(name, email, include_details=True, include_records=False):

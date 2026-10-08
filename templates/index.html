@@ -3,15 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Resume Analyser</title>
+    <title>TalentScope | Resume Intelligence</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
     <main class="container">
         <header class="hero">
-            <p class="eyebrow">RecruitFlow Resume Processing</p>
-            <h1>Resume Analyser</h1>
-            <p>Upload candidate resumes in bulk and store their structured details.</p>
+            <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+            <div>
+                <p class="eyebrow">Talent intelligence workspace</p>
+                <h1>Find the right people, faster.</h1>
+                <p>Upload, organize, and match candidate resumes against the roles that matter to your team.</p>
+            </div>
+            <div class="hero-note"><span class="status-dot"></span> Secure candidate processing</div>
         </header>
 
         <div class="app-layout">
@@ -30,13 +34,13 @@
                 <div><p class="eyebrow">Sorting</p><h2>Choose a role to match</h2></div>
                 {% if candidates %}<button class="secondary small-button" id="analyze-stored" type="button">Analyze stored candidates</button>{% endif %}
             </div>
-            <p class="muted">Use this role to rank uploaded resumes or analyze candidates already in your records.</p>
+            <p class="muted">Choose a role to rank uploaded resumes or analyze candidates already in your records.</p>
             <div class="role-picker">
                 <label for="role">Role to match</label>
                 <span class="role-hint">Choose the position you are hiring for</span>
                 <div class="select-wrap">
-                    <select id="role" name="role" form="upload-form" required>
-                        <option value="" disabled selected>Select a role</option>
+                    <select id="role" name="role" form="upload-form">
+                        <option value="" selected>Select a role (optional for upload)</option>
                         {% for role, requirements in roles.items() %}
                         <option value="{{ role }}" data-skills="{{ requirements.skills|sort|join(', ') }}" data-experience="{{ requirements.experience }}">{{ role }}</option>
                         {% endfor %}
@@ -49,7 +53,7 @@
         <section class="card upload-card section-panel" id="upload-section" hidden>
             <p class="eyebrow">Upload</p>
             <h2>Upload resumes</h2>
-            <p>Choose one or more PDF or DOCX files. Each resume is parsed and stored as a candidate record.</p>
+            <p>Choose one or more PDF or DOCX files. Each resume is saved as a candidate record.</p>
             {% if error %}<p class="alert error">{{ error }}</p>{% endif %}
             <form id="upload-form" action="{{ url_for('analyze') }}" method="post" enctype="multipart/form-data">
                 <label class="file-picker">
@@ -68,6 +72,11 @@
                 rolePreview.textContent = `${option.dataset.experience} years target - Matching skills: ${option.dataset.skills}`;
                 rolePreview.classList.add("has-selection");
             });
+            const roleFromRecordsLink = new URLSearchParams(window.location.search).get("role");
+            if (roleFromRecordsLink && Array.from(roleSelect.options).some((option) => option.value === roleFromRecordsLink)) {
+                roleSelect.value = roleFromRecordsLink;
+                roleSelect.dispatchEvent(new Event("change"));
+            }
         </script>
 
         <section class="card analysis-section section-panel" id="analysis-section" hidden aria-live="polite">
@@ -77,6 +86,7 @@
             <div class="live-results" id="live-results" hidden>
                 <div class="section-heading"><h3>Upload results</h3><span id="upload-status"></span></div>
                 <div id="live-candidate-list"></div>
+                <a class="button records-link" id="view-records" href="{{ url_for('home') }}#candidate-section" hidden>View candidate records</a>
             </div>
             <div class="stored-analysis" id="stored-analysis" hidden>
                 <div class="section-heading"><h3>Stored candidate matches</h3><span id="stored-analysis-status"></span></div>
@@ -89,6 +99,17 @@
             const liveResults = document.querySelector("#live-results");
             const liveList = document.querySelector("#live-candidate-list");
             const uploadStatus = document.querySelector("#upload-status");
+            const viewRecords = document.querySelector("#view-records");
+            const showUploadValidation = (message) => {
+                let validation = document.querySelector("#upload-validation");
+                if (!validation) {
+                    validation = document.createElement("p");
+                    validation.id = "upload-validation";
+                    validation.className = "alert error";
+                    uploadForm.before(validation);
+                }
+                validation.textContent = message;
+            };
             const addLiveCard = (result) => {
                 const card = document.createElement("article");
                 card.className = "live-candidate";
@@ -97,11 +118,18 @@
                     const analysis = result.analysis;
                     const title = document.createElement("h3");
                     title.textContent = candidate.full_name || result.filename;
-                    const detail = document.createElement("p");
-                    detail.textContent = `Candidate role: ${analysis.candidate_role} | ${analysis.role} match: ${analysis.score}%`;
-                    const skills = document.createElement("p");
-                    skills.textContent = `Matching skills: ${analysis.matched_skills.join(", ")}`;
-                    card.append(title, detail, skills);
+                    card.append(title);
+                    if (analysis) {
+                        const detail = document.createElement("p");
+                        detail.textContent = `Candidate role: ${analysis.candidate_role} | ${analysis.role} match: ${analysis.score}%`;
+                        const skills = document.createElement("p");
+                        skills.textContent = `Matching skills: ${analysis.matched_skills.join(", ")}`;
+                        card.append(detail, skills);
+                    } else {
+                        const detail = document.createElement("p");
+                        detail.textContent = "Candidate saved. Choose a role in Sorting when you are ready to analyze the profile.";
+                        card.append(detail);
+                    }
                 } else {
                     const message = document.createElement("p");
                     message.textContent = `${result.filename}: ${result.error || "No role skills matched; candidate excluded."}`;
@@ -113,29 +141,45 @@
                 event.preventDefault();
                 const selectedFiles = Array.from(uploadForm.querySelector('input[type="file"]').files);
                 const selectedRole = roleSelect.value;
-                if (!selectedRole || selectedFiles.length === 0) return;
+                if (selectedFiles.length === 0) {
+                    showUploadValidation("Select at least one PDF or DOCX resume to analyze.");
+                    return;
+                }
+                document.querySelector("#upload-validation")?.remove();
                 showSection("analysis-section");
                 document.querySelector("#analysis-empty").hidden = true;
                 liveResults.hidden = false;
                 liveList.replaceChildren();
+                viewRecords.hidden = true;
+                let savedCandidate = false;
                 uploadForm.querySelector("button[type='submit']").disabled = true;
                 for (let index = 0; index < selectedFiles.length; index += 1) {
                     const file = selectedFiles[index];
                     uploadStatus.textContent = `Processing ${index + 1} of ${selectedFiles.length}: ${file.name}`;
                     const data = new FormData();
-                    data.append("role", selectedRole);
+                    if (selectedRole) data.append("role", selectedRole);
                     data.append("resumes", file);
                     try {
                         const response = await fetch("{{ url_for('analyze_api') }}", { method: "POST", body: data });
                         const payload = await response.json();
                         if (!response.ok) throw new Error(payload.error || "Upload failed.");
                         payload.results.forEach(addLiveCard);
+                        savedCandidate ||= payload.results.some((result) => Boolean(result.candidate));
                         if (payload.filtered_count) addLiveCard({ filename: file.name, error: "No required skills matched the selected role." });
                     } catch (error) {
                         addLiveCard({ filename: file.name, error: error.message });
                     }
                 }
                 uploadStatus.textContent = `Finished processing ${selectedFiles.length} resume${selectedFiles.length === 1 ? "" : "s"}.`;
+                viewRecords.hidden = !savedCandidate;
+                if (savedCandidate) {
+                    viewRecords.href = `${window.location.pathname}?role=${encodeURIComponent(selectedRole)}#candidate-section`;
+                    const destination = selectedRole
+                        ? `${window.location.pathname}?role=${encodeURIComponent(selectedRole)}&analyze=1#analysis-section`
+                        : viewRecords.href;
+                    window.location.assign(destination);
+                    return;
+                }
                 uploadForm.querySelector("button[type='submit']").disabled = false;
             });
         </script>
@@ -184,6 +228,7 @@
                 sectionNavItems.forEach((item) => item.classList.toggle("active", item.dataset.section === sectionId));
             };
             sectionNavItems.forEach((item) => item.addEventListener("click", () => showSection(item.dataset.section)));
+            if (window.location.hash === "#candidate-section") showSection("candidate-section");
         </script>
     </main>
     {% if candidates %}
@@ -376,11 +421,10 @@
         const storedAnalysisResults = document.querySelector("#stored-analysis-results");
         analyzeStoredButton.addEventListener("click", async () => {
             if (!roleSelect.value) {
-                showSection("analysis-section");
-                document.querySelector("#analysis-empty").hidden = true;
-                storedAnalysis.hidden = false;
-                storedAnalysisStatus.textContent = "";
-                storedAnalysisResults.textContent = "Choose a role in the upload section first.";
+                showSection("sorting-section");
+                rolePreview.textContent = "Choose a role before analyzing stored candidates.";
+                rolePreview.classList.add("has-selection");
+                roleSelect.focus();
                 return;
             }
             showSection("analysis-section");
@@ -417,6 +461,9 @@
             }
         });
         loadCandidate(rows[0]);
+        if (new URLSearchParams(window.location.search).get("analyze") === "1") {
+            analyzeStoredButton.click();
+        }
     </script>
     {% endif %}
 </body>
