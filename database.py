@@ -49,7 +49,13 @@ skills = Table(
 class CandidateDatabase:
     def __init__(self, database_url: str | None = None):
         default_path = Path(__file__).resolve().parent / "resume_analyzer.db"
-        self.database_url = database_url or os.getenv("DATABASE_URL") or f"sqlite:///{default_path.as_posix()}"
+        configured_url = database_url or os.getenv("DATABASE_URL")
+        if os.getenv("VERCEL") and not configured_url:
+            raise RuntimeError(
+                "DATABASE_URL is required on Vercel. Configure a reachable managed database; "
+                "the function filesystem cannot persist SQLite data."
+            )
+        self.database_url = configured_url or f"sqlite:///{default_path.as_posix()}"
         self.engine = create_engine(self.database_url, pool_pre_ping=True)
         metadata.create_all(self.engine)
 

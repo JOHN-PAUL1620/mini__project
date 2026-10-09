@@ -21,6 +21,14 @@ The app stores relational data in `resume_analyzer.db` by default. For the SRS d
 $env:DATABASE_URL = "mysql+pymysql://talentiq_user:password@localhost/talentiq"
 ```
 
+### Vercel
+
+Vercel functions have a read-only, ephemeral application filesystem. Before
+deploying, configure `DATABASE_URL` in the Vercel project settings with a
+network-reachable managed database URL (not `localhost`). Do not rely on the
+local `jj.env` file in production. The app stores parsed data in the database
+and does not retain uploaded resume files on the function filesystem.
+
 ## API
 
 - `POST /api/resumes/analyze`: upload one or more files in the `resumes` multipart field.

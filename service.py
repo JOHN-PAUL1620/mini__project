@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import uuid
 from pathlib import Path
 
 from werkzeug.utils import secure_filename
@@ -11,8 +10,13 @@ from werkzeug.utils import secure_filename
 from parser import ResumeParseError, SUPPORTED_EXTENSIONS, parse_resume
 
 
-def process_uploads(files, database, upload_folder: str) -> list[dict]:
-    Path(upload_folder).mkdir(parents=True, exist_ok=True)
+def process_uploads(files, database, upload_folder: str | None = None) -> list[dict]:
+    """Parse uploads and persist their extracted data in the configured database.
+
+    The resume bytes are deliberately not copied to an application directory.
+    Serverless deployment filesystems are read-only (apart from temporary,
+    short-lived storage), and the application never reads those copies back.
+    """
     results = []
     for upload in files:
         filename = secure_filename(upload.filename or "")
@@ -29,9 +33,6 @@ def process_uploads(files, database, upload_folder: str) -> list[dict]:
         try:
             parsed = parse_resume(file_bytes, filename)
             candidate_id, duplicate = database.save_candidate(parsed, resume_hash, filename)
-            if not duplicate:
-                stored_name = f"{uuid.uuid4().hex}{extension}"
-                Path(upload_folder, stored_name).write_bytes(file_bytes)
             results.append({
                 "filename": filename,
                 "status": "duplicate" if duplicate else "processed",

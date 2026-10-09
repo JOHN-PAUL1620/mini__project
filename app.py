@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 from flask import Flask, jsonify, render_template, request
@@ -12,14 +11,16 @@ from database import CandidateDatabase
 from service import process_uploads
 from roles import ROLES, analyze_match, infer_candidate_role
 
-load_dotenv("jj.env")
+# ``jj.env`` is only a convenience file for local development.  It must not
+# supply a localhost connection string to a deployed serverless function.
+if not os.getenv("VERCEL"):
+    load_dotenv("jj.env")
 
 
 def create_app(test_config: dict | None = None) -> Flask:
     app = Flask(__name__)
     app.config.from_mapping(
         MAX_CONTENT_LENGTH=16 * 1024 * 1024,
-        UPLOAD_FOLDER=str(Path(__file__).resolve().parent / "uploads"),
         DATABASE_URL=os.getenv("DATABASE_URL"),
     )
     if test_config:
@@ -40,7 +41,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         role = request.form.get("role", "")
         if role not in ROLES:
             return render_template("index.html", candidates=database.list_candidates(), roles=ROLES, error="Choose a role from the list."), 400
-        results = process_uploads(files, database, app.config["UPLOAD_FOLDER"])
+        results = process_uploads(files, database)
         total_candidates = sum(bool(result.get("candidate")) for result in results)
         results = _rank_results(results, role)
         return render_template("result.html", results=results, role=role, filtered_count=total_candidates - sum(bool(result.get("candidate")) for result in results))
@@ -53,7 +54,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         role = request.form.get("role", "")
         if role and role not in ROLES:
             return jsonify({"error": "Choose a valid role.", "available_roles": list(ROLES)}), 400
-        results = process_uploads(files, database, app.config["UPLOAD_FOLDER"])
+        results = process_uploads(files, database)
         if role:
             total_candidates = sum(bool(result.get("candidate")) for result in results)
             results = _rank_results(results, role)

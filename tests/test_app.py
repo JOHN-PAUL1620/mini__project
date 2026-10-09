@@ -45,6 +45,7 @@ class ResumeAnalyzerTest(unittest.TestCase):
 
         candidates = self.client.get("/api/candidates").get_json()["candidates"]
         self.assertEqual(len(candidates), 2)
+        self.assertFalse((Path(self.temp_dir.name) / "uploads").exists())
 
     def test_rejects_unsupported_file_type(self):
         response = self.client.post("/api/resumes/analyze", data={
