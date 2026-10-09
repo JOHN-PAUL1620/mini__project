@@ -131,6 +131,7 @@ def _analyze_candidates(candidates: list[dict], role: str) -> list[dict]:
     return sorted(results, key=lambda result: result["analysis"]["score"], reverse=True)
 
 
+app = create_app()
+
 if __name__ == "__main__":
-    app = create_app()
     app.run(debug=True, port=8080)
